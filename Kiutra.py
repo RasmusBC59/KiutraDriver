@@ -11,12 +11,12 @@ from qcodes.instrument import ChannelList, InstrumentChannel, Instrument
 from qcodes.parameters import Parameter, Group, GroupParameter
 
 
-class Kiutra(Instrument):
+class KiutraIns(Instrument):
     def __init__(self, name: str, address: str, **kwargs: Any):
         super().__init__(name, **kwargs)
         self.host = address
         self.client = KiutraClient(self.host, 1006)
-        print(client.query("cryostat.status"))
+        print(self.client.query("cryostat.status"))
 
         self.add_parameter('magnetic_field',
                            label = "Magnetic field",
@@ -30,9 +30,9 @@ class Kiutra(Instrument):
                            parameter_class=TemperatureControl)    
 
 class MagneticField(Parameter):
-    def __init__(self, name, host, **kwargs):
-        self.super.__init__(name, **kwargs)
-        self.field_ramp = 0.5
+    def __init__(self, name, **kwargs):
+        super().__init__(name, **kwargs)
+        self.field_ramp = 0.1 #T/min
         self.sample_magnet = MagnetControl("sample_magnet", self.root_instrument.host)
 
     def get_raw(self):
@@ -53,16 +53,20 @@ class TemperatureControl(Parameter):
     def __init__(self, name: str, **kwargs: Any) -> None:
         super().__init__(name, **kwargs)
         self.temperature_control = ContinuousTemperatureControl('temperature_control', self.root_instrument.host)
-        self.temperature_ramp
+        self.temperature_ramp = 0.01
+
+    def get_raw(self):
+        return self.temperature_control.kelvin
         
     def set_raw(self, value:float) -> None:
         self.temperature_control.start((value, self.temperature_ramp))
-        print(f"Waiting for {self.temperature_ramp} K ")
+        print(f"Waiting for {value} K ")
         while True:
             ramping_info = self.temperature_control.get_ramping_info()
 
             T = self.temperature_control.kelvin
-            print(f'T = {T:.3f} K)
+            print(f"T = {T:.3f} K")
+            print(ramping_info)
             if ramping_info['ramp_done'] and ramping_info['ready_to_ramp']:
                 # when whole ramp is covered, go on
                 break
