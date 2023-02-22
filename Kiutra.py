@@ -33,6 +33,7 @@ class KiutraIns(Instrument):
             label="Field Ramp",
             unit="T/min",
             vals=vals.Numbers(0.01, 1.0),
+            initial_value=0.1,
         )
 
         self.add_parameter(
@@ -48,6 +49,7 @@ class KiutraIns(Instrument):
             label="Temperature Ramp",
             unit="K/min",
             vals=vals.Numbers(0.01, 4.0),
+            initial_value=0.1,
         )
 
 
