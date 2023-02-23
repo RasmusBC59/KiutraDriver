@@ -34,6 +34,7 @@ class KiutraIns(Instrument):
             unit="T/min",
             vals=vals.Numbers(0.01, 1.0),
             initial_value=0.1,
+            set_cmd = lambda x: x
         )
 
         self.add_parameter(
@@ -50,6 +51,7 @@ class KiutraIns(Instrument):
             unit="K/min",
             vals=vals.Numbers(0.01, 4.0),
             initial_value=0.1,
+            set_cmd = lambda x: x
         )
 
 
@@ -122,6 +124,7 @@ def SweepMeasurement(
     start: float,
     end: float,
     ramp: float,
+    delay: float,
     write_period: float,
     *param_meas,
 ):
@@ -130,16 +133,17 @@ def SweepMeasurement(
     meas.register_parameter(kiutra.magnetic_field)
     params = []
     for param in param_meas:
-        if issubclass(param, ParameterBase):
+        if isinstance(param, ParameterBase):
             params.append(param)
             meas.register_parameter(param, setpoints=(kiutra.magnetic_field,))
 
     kiutra.magnetic_field_ramp(ramp)
 
     with meas.run() as datasaver:
-        kiutra.sample_magnet.sweep(start, end, ramp)
+        kiutra.magnetic_field.sweep(start, end)
         stable = False
-        while not stable:
+        B_2 = start
+        while all((not stable, B_2 < end)):
             stable = kiutra.magnetic_field.sample_magnet.stable
             B_1 = kiutra.magnetic_field.sample_magnet.field
             params_get = [(param, param.get()) for param in params]
@@ -147,5 +151,6 @@ def SweepMeasurement(
             datasaver.add_result(
                 (kiutra.magnetic_field, (B_1 + B_2) / 2.0), *params_get
             )
+            time.sleep(delay)
 
         return datasaver.dataset
