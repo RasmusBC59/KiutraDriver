@@ -118,8 +118,14 @@ class TemperatureControl(Parameter):
     def _is_done(self) -> bool:
         return self.ramping_info["ramp_done"] and self.ramping_info["ready_to_ramp"]
 
+    def sweep(self, start: float, end: float):
+        ramp = self.root_instrument.temperature_ramp()
+        self.set_raw(start)
+        print(f"Starts sweep from {start} K to {end} K ramping {ramp} K/min")
+        self.sample_magnet.start((end, self.root_instrument.temperature_ramp()))
 
-def SweepMeasurement(
+
+def BSweepMeasurement(
     kiutra: KiutraIns,
     start: float,
     end: float,
@@ -150,6 +156,43 @@ def SweepMeasurement(
             B_2 = kiutra.magnetic_field.sample_magnet.field
             datasaver.add_result(
                 (kiutra.magnetic_field, (B_1 + B_2) / 2.0), *params_get
+            )
+            time.sleep(delay)
+
+        return datasaver.dataset
+
+
+def TSweepMeasurement(
+    kiutra: KiutraIns,
+    start: float,
+    end: float,
+    ramp: float,
+    delay: float,
+    write_period: float,
+    *param_meas,
+):
+    meas = Measurement()
+    meas.write_period = write_period
+    meas.register_parameter(kiutra.temperature)
+    params = []
+    for param in param_meas:
+        if isinstance(param, ParameterBase):
+            params.append(param)
+            meas.register_parameter(param, setpoints=(kiutra.temperature,))
+
+    kiutra.temperature_ramp(ramp)
+
+    with meas.run() as datasaver:
+        kiutra.temperature.sweep(start, end)
+        stable = False
+        T_2 = start
+        while all((not stable, T_2 < end)):
+            stable = kiutra.temperature.stable
+            T_1 = kiutra.temperature.get_raw()
+            params_get = [(param, param.get()) for param in params]
+            T_1 = kiutra.temperature.get_raw()
+            datasaver.add_result(
+                (kiutra.temperature, (T_1 + T_2) / 2.0), *params_get
             )
             time.sleep(delay)
 
