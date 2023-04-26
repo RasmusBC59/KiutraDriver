@@ -6,6 +6,7 @@ from kiutra_api.controller_interfaces import (
     ADRControl,
     ContinuousTemperatureControl,
     MagnetControl,
+    SampleControl,
 )
 from qcodes import validators as vals
 from qcodes.dataset import Measurement
@@ -52,6 +53,12 @@ class KiutraIns(Instrument):
             vals=vals.Numbers(0.01, 4.0),
             initial_value=0.1,
             set_cmd = lambda x: x
+        )
+
+        self.add_parameter(
+            "loader",
+            label="Sample Loader",
+            parameter_class=SampleLoader,
         )
 
 
@@ -197,3 +204,55 @@ def TSweepMeasurement(
             time.sleep(delay)
 
         return datasaver.dataset
+
+
+class SampleLoader(Parameter):
+    def __init__(self, name: str, **kwargs: Any) -> None:
+        super().__init__(name, **kwargs)
+        self.sample_loader = SampleControl(
+            "sample_loader", self.root_instrument.host
+            )
+
+    def get_raw(self) -> tuple:
+        return self.sample_loader.status
+    
+    def load(self) -> str:
+        self.sample_loader.load_sample()
+        print("Kiutra has started loading the sample")
+        while self.sample_loader.progress < 1: # check whether progress is given in percent or decimal
+            print("Loading is %.0f completed" % 100 * self.sample_loader.progress)
+            time.sleep(1)
+        return "Loading complete"
+
+    def unload(self) -> None:
+        self.sample_loader.unload_sample()
+        print("Kiutra has started unloading the sample")
+        while self.sample_loader.progress < 1: # check if progress is gives a meaningful number when unloading
+            print("Unloading is %.0f completed" % 100 * self.sample_loader.progress)
+            time.sleep(1)
+        return "Unloading complete"
+    
+    def vent(self) -> None:
+        self.sample_loader.open_airlock()
+
+    def evac_chamber(self) -> None:
+        self.sample_loader.close_airlock()
+
+    def blockings(self) -> None:
+        if self.sample_loader.is_blocked == True:
+            return self.sample_loader.is_blocked_by() # check whether this is a callable or not
+        
+    def _reset(self) -> None:
+        self.sample_loader.reset()
+
+
+    # Maybe it is just easier to just set up the qdac immidiately \
+    # after loading has completed in a detached piece of code
+    # 
+    # def load_cool_in_configuration(self, *cooling_configuration) -> None:
+    #     self.load()
+    #     params = []
+    #     for param in cooling_configuration:
+    #         if isinstance(param, ParameterBase):
+    #             params.append(param)
+    #             meas.register_parameter(param, setpoints=(kiutra.temperature,))
