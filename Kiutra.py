@@ -199,7 +199,7 @@ class TemperatureControl(Parameter):
 
     def get_mode(self) -> str:
         self.adr_control = ADRControl("adr_control", self.root_instrument.host)
-        adr_mode_dic = {"cadr": "Continuous", "adr": "One-Shot"}
+        adr_mode_dic = {"cadr": "Continuous", "adr": "Single-Shot"}
         return adr_mode_dic[self.adr_control.operation_mode]
     
     def get_blocks(self) -> str:
@@ -222,6 +222,22 @@ class ADR_Control(Parameter):
 
     def get_raw(self) -> float:
         return self.adr_control.kelvin
+    
+    def set_raw(self, value: float) -> None:
+        if self.adr_control.is_blocked == True:
+            raise ValueError(f"End the following control sequences before \
+                    setting the temperature: {self.get_blocks()}")
+        else:
+            self.adr_control.start((value, self.root_instrument.temperature_rate()))
+            while True:
+                self._get_info()
+                self._print_info()
+                if self.adr_control.stable:
+                    break
+                time.sleep(1)
+
+    def get_blocks(self) -> str:
+        return self.adr_control.is_blocked_by
 
     def interrupt(self) -> str:
         self.adr_control.stop()
@@ -240,6 +256,22 @@ class Heater_Control(Parameter):
     
     def get_raw(self) -> float:
         return self.heater_control.kelvin
+    
+    def set_raw(self, value: float) -> None:
+        if self.heater_control.is_blocked == True:
+            raise ValueError(f"End the following control sequences before \
+                    setting the temperature: {self.get_blocks()}")
+        else:
+            self.heater_control.start((value, self.root_instrument.temperature_rate()))
+            while True:
+                self._get_info()
+                self._print_info()
+                if self.heater_control.stable:
+                    break
+                time.sleep(1)
+
+    def get_blocks(self) -> str:
+        return self.heater_control.is_blocked_by
 
     def interrupt(self) -> str:
         self.heater_control.stop()
@@ -340,7 +372,6 @@ class SampleLoader(Parameter):
         super().__init__(name, **kwargs)
         self.sample_loader = SampleControl("sample_loader", self.root_instrument.host)
 
-    # Not all Kiutra come with automatic sample detection
     def get_raw(self) -> str:
         return f"The puck is connected: {self.get_connection_status()}, and the full loading procedure is {int(self.get_loading_progress() * 100)}% done"
 
