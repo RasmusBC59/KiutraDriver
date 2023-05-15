@@ -44,7 +44,7 @@ class KiutraIns(Instrument):
             label="Temperature",
             unit="K",
             parameter_class=TemperatureControl,
-            vals=vals.Numbers(0.1, 300),
+            vals=vals.Numbers(0.1, 300), #could make it (0.3, 300)
         )
 
         self.add_parameter(
@@ -76,7 +76,7 @@ class KiutraIns(Instrument):
             "heater",
             label="Heater Control",
             unit="K",
-            vals=vals.Numbers(0.1, 300),
+            vals=vals.Numbers(4, 300),
             parameter_class=Heater_Control,
         )
 
