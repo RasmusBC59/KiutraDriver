@@ -20,7 +20,6 @@ class KiutraIns(Instrument):
         super().__init__(name, **kwargs)
         self.host = address
         self.client = KiutraClient(self.host, 1006)
-
         print(self.client.query("cryostat.status"))
 
         self.add_parameter(
@@ -66,6 +65,14 @@ class KiutraIns(Instrument):
         )
 
         self.add_parameter(
+            "mode",
+            label="Operation mode",
+            get_cmd=self.adr.get_mode,
+            #set_cmd=self.adr.set_mode,
+            vals=vals.Strings(),
+        )
+
+        self.add_parameter(
             "heater",
             label="Heater Control",
             unit="K",
@@ -83,25 +90,31 @@ class KiutraIns(Instrument):
         self.add_parameter(
             "controllers",
             label="Controller Status",
-            parameter_class=CryostatControllers,
+            get_cmd=self.get_controller_status,
         )
 
-
-class CryostatControllers(Parameter):
-    def __init__(self, name, **kwargs):
-        super().__init__(name, **kwargs)
     
-    def get_raw(self) -> None:
-        if MagneticField('_sample_magnet')._is_active() == True:
+    def get_controller_status(self) -> str:
+        if self.magnetic_field._is_active() == True:
             print("Sample magnet is active")
-        if TemperatureControl('_temperature_control')._is_active() == True:
+        elif self.magnetic_field._is_active() == False:
+            print("Sample magnet is inactive")
+        if self.temperature._is_active() == True:
             print("Temperature control is active")
-        if ADR_Control('_adr_control')._is_active() == True:
+        elif self.temperature._is_active() == False:
+            print("Temperature control is inactive")
+        if self.adr._is_active() == True:
             print("ADR control is active")
-        if Heater_Control('_heater_control')._is_active() == True:
-            print("Heater control is active")
-        if SampleLoader('_loader_control')._is_active() == True:
+        elif self.adr._is_active() == False:
+            print("ADR control is inactive")
+        # if self.heater._is_active() == True:
+        #     print("Heater control is active")
+        # elif self.heater._is_active() == False:
+        #     print("Heater control is inactive")
+        if self.loader._is_active() == True:
             print("Loader is active")
+        elif self.loader._is_active() == False:
+            print("Loader is inactive")
 
 
 class MagneticField(Parameter):
@@ -128,13 +141,14 @@ class MagneticField(Parameter):
     def _get_info(self) -> None:
         self.B = self.sample_magnet.field
         self.stable = self.sample_magnet.stable
-        _, self.status = self.sample_magnet.status
+        self.setpoint = self.sample_magnet.field_setpoint
+        #_, self.status = self.sample_magnet.status
 
     def _print_info(self) -> None:
-        if self.status['down'] == True:
-            print(f"B = {self.B:.3f} (sweeping down to {self.status['internal_setpoint']}T, stable={self.stable})")
-        if self.status['up'] == True:
-            print(f"B = {self.B:.3f} (sweeping up to {self.status['internal_setpoint']}T, stable={self.stable})")
+        if self.B > self.setpoint:
+            print(f"B = {self.B:.3f}T (sweeping down to {self.setpoint}T, stable={self.stable})")
+        if self.B < self.setpoint:
+            print(f"B = {self.B:.3f}T (sweeping up to {self.setpoint}T, stable={self.stable})")
 
     def sweep(self, start: float, end: float) -> None:
         ramp = self.root_instrument.magnetic_field_rate()
@@ -168,7 +182,7 @@ class TemperatureControl(Parameter):
             raise ValueError(f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}")
         else:
-            if True==True:#self.check_range(value) == True:
+            if self.check_range(value) == True:
                 self.temperature_control.start((value, self.root_instrument.temperature_rate()))
                 while True:
                     self._get_info()
@@ -180,22 +194,23 @@ class TemperatureControl(Parameter):
     def check_range(self, T: float) -> bool:
         self.mode = self.get_mode()
         if T < 0.3:
-            if self.mode == "continuous":
-                raise ValueError("Temperatures below 0.3K are not possible in continuous ADR mode: use KiutraIns.temperature.set_mode(\"Single-Shot\")")
+            if self.mode == "cadr":
+                raise ValueError("Temperatures below 0.3K are not possible in continuous ADR mode")
             else:
                 return True
         else:
             return True
 
     def _get_info(self) -> None:
-        self.ramping_info = self.temperature_control.get_ramping_info()
+        self.setpoint = self.temperature_control.internal_setpoint
+        self.stable = self.temperature_control.stable
         self.T = self.temperature_control.kelvin
 
     def _print_info(self) -> None:
-        if self.ramping_info['down'] == True:
-            print(f"B = {self.T:.3f} (sweeping down to {self.ramping_info['internal_setpoint']}T, stable={self.stable})")
-        if self.ramping_info['up'] == True:
-            print(f"B = {self.T:.3f} (sweeping up to {self.ramping_info['internal_setpoint']}T, stable={self.stable})")
+        if self.T > self.setpoint:
+            print(f"B = {self.T:.3f}K (sweeping down to {self.setpoint}K, stable={self.stable})")
+        if self.T < self.setpoint:
+            print(f"B = {self.T:.3f}K (sweeping up to {self.setpoint}K, stable={self.stable})")
 
     def _is_done(self) -> bool:
         return self.ramping_info["ramp_done"] and self.ramping_info["ready_to_ramp"]
@@ -205,18 +220,16 @@ class TemperatureControl(Parameter):
         self.set_raw(start)
         print(f"Starts sweep from {start} K to {end} K ramping {ramp} K/min")
         self.temperature_control.start((end, self.root_instrument.temperature_rate()))
-        self.set_raw(end) # maybe it needs to be set again in order to continue in continuous mode
+        self.set_raw(end)
 
     def get_mode(self) -> str:
         self.adr_control = ADRControl("adr_control", self.root_instrument.host)
-        adr_mode_dic = {"cadr": "continuous", "adr": "single-shot"}
-        return adr_mode_dic[self.adr_control.operation_mode]
+        return self.adr_control.operation_mode
     
-    def set_mode(self, operation_mode: str) -> str:
-        self.adr_control = ADRControl("adr_control", self.root_instrument.host)
-        adr_mode_dic = {"continuous": "cadr", "single-shot":"adr"}
-        self.adr_control.operation_mode(adr_mode_dic[operation_mode])
-        return f"ADR mode is set to {self.get_mode()}"
+    # def set_mode(self, mode: str) -> str:
+    #     self.adr_control = ADRControl("adr_control", self.root_instrument.host)
+    #     self.adr_control.operation_mode(mode)
+    #     return f"ADR mode is set to {self.get_mode()}"
     
     def get_blocks(self) -> str:
         return self.temperature_control.is_blocked_by
@@ -239,18 +252,20 @@ class ADR_Control(Parameter):
     def get_raw(self) -> float:
         return self.adr_control.kelvin
     
-    def set_raw(self, value: float, 
-                operation_mode: str=None, 
+    def set_raw(self, value: float,
+                adr_mode: int=None,
+                mode: str=None, 
                 auto_regenerate: bool=False, 
                 pre_regenerate: bool=False) -> None:
         if self.adr_control.is_blocked == True:
             raise ValueError(f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}")
         else:
-            if True==True: #self.check_range(value, operation_mode) == True:
+            if self.check_range(value, mode) == True:
                 self.adr_control.start_adr(value, 
-                                            self.root_instrument.temperature_rate(), 
-                                            operation_mode=operation_mode,
+                                            self.root_instrument.temperature_rate(),
+                                            adr_mode=adr_mode, 
+                                            operation_mode=mode,
                                             auto_regenerate=auto_regenerate,
                                             pre_regenerate=pre_regenerate)
                 while True:
@@ -260,39 +275,40 @@ class ADR_Control(Parameter):
                         break
                     time.sleep(1)
 
-    def check_range(self, T: float, operation_mode: str=None) -> bool:
-        if operation_mode == None:
-            self.mode = self.adr_control.get_mode()
+    def check_range(self, value: float, mode: str=None) -> bool:
+        if mode == None:
+            self.mode = self.get_mode()
         else:
-            self.mode = operation_mode
-        if T < 0.3:
-            if self.mode == "continuous":
-                raise ValueError("Temperatures below 0.3K are not possible in continuous ADR mode: use KiutraIns.adr.set_mode(\"Single-Shot\")")
+            self.mode = mode
+        if value < 0.3:
+            if self.mode == "cadr":
+                raise ValueError(f"Temperatures below 0.3K are not possible in continuous ADR mode: use KiutraIns.adr({value}, " \
+                                 + "operation_mode=\"single_shot\")")
             else:
                 return True
         else:
             return True
         
     def get_mode(self) -> str:
-        adr_mode_dic = {"cadr": "continuous", "adr": "single-shot"}
-        return adr_mode_dic[self.adr_control.operation_mode]
+        return self.adr_control.operation_mode
     
-    def set_mode(self, operation_mode: str) -> str:
-        adr_mode_dic = {"continuous": "cadr", "single-shot":"adr"}
-        self.adr_control.operation_mode(adr_mode_dic[operation_mode])
-        return f"ADR mode is set to {self.get_mode()}"
+    # def set_mode(self, mode: str) -> str:
+    #     self.adr_control.operation_mode(mode)
+    #     return f"ADR mode is set to {self.get_mode()}"
 
     def sweep(self, start: float, 
               end: float,
-              operation_mode: str=None, 
+              adr_mode: int=None,
+              mode: str=None, 
               auto_regenerate: bool=False, 
               pre_regenerate: bool=False) -> None:
         ramp = self.root_instrument.temperature_rate()
-        self.set_raw(start, operation_mode=operation_mode)
+        self.set_raw(start, operation_mode=mode)
         print(f"Starts sweep from {start} K to {end} K ramping {ramp} K/min")
         self.adr_control.start_adr(end, 
                                    self.root_instrument.temperature_rate(),
-                                   operation_mode=operation_mode,
+                                   adr_mode=adr_mode,
+                                   operation_mode=mode,
                                    auto_regenerate=auto_regenerate,
                                    pre_regenerate=pre_regenerate)
         #self.set_raw(end)
@@ -303,10 +319,10 @@ class ADR_Control(Parameter):
         self.T = self.adr_control.kelvin
 
     def _print_info(self) -> None:
-        if self.ramping_info['down'] == True:
-            print(f"B = {self.T:.3f} (sweeping down to {self.setpoint}T, stable={self.stable})")
-        if self.ramping_info['up'] == True:
-            print(f"B = {self.T:.3f} (sweeping up to {self.setpoint}T, stable={self.stable})")
+        if self.T > self.setpoint:
+            print(f"B = {self.T:.3f}K (sweeping down to {self.setpoint}K, stable={self.stable})")
+        if self.T < self.setpoint:
+            print(f"B = {self.T:.3f}K (sweeping up to {self.setpoint}K, stable={self.stable})")
 
     def get_blocks(self) -> str:
         return self.adr_control.is_blocked_by
@@ -446,6 +462,7 @@ def ADRSweepMeasurement(
     rate: float,
     delay: float,
     write_period: float=5.0,
+    adr_mode: int=None,
     operation_mode: str=None, 
     auto_regenerate: bool=False, 
     pre_regenerate: bool=False,
@@ -469,7 +486,7 @@ def ADRSweepMeasurement(
             return T > end
 
     with meas.run() as datasaver:
-        kiutra.adr.sweep(start, end, operation_mode, auto_regenerate, pre_regenerate)
+        kiutra.adr.sweep(start, end, adr_mode, operation_mode, auto_regenerate, pre_regenerate)
         stable = False
         T_2 = start
         while all((not stable, T_condition(T_2, start, end))):
@@ -491,7 +508,7 @@ class SampleLoader(Parameter):
         self.sample_loader = SampleControl("sample_loader", self.root_instrument.host)
 
     def get_raw(self) -> str:
-        return f"The puck is connected: {self.get_connection_status()}, and the full loading procedure is {int(self.get_loading_progress() * 100)}% done"
+        return f"The puck is connected: {self.get_connection_status()}"
 
     def get_connection_status(self) -> bool:
         return self.sample_loader.sample_loaded
