@@ -216,8 +216,9 @@ class TemperatureControl(Parameter):
     def sweep(self, start: float, end: float, rate: float=None) -> None:
         if rate == None:
             rate = self.root_instrument.temperature_rate()
-        print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
-        self.temperature_control.start((end, rate))
+        if self.check_range(end) == True:
+            print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
+            self.temperature_control.start((end, rate))
 
     def get_mode(self) -> str:
         return self.root_instrument.operation_mode()
@@ -428,7 +429,7 @@ def TSweepMeasurement(
             )
             time.sleep(delay)
 
-        kiutra.temperature(end)
+        #kiutra.temperature(end)
         return datasaver.dataset
 
 
@@ -460,7 +461,7 @@ def ADRSweepMeasurement(
     if abs(start - kiutra.adr()) > 0.001:
         kiutra.adr(start, operation_mode=operation_mode)
         while not kiutra.adr.adr_control.stable:
-            time.sleep(0.1)
+            time.sleep(0.1) # it didn't appear to be stuck here
    
     if overshoot == True:
         new_end = end + np.sign(end - start) * overshoot_val
@@ -468,7 +469,7 @@ def ADRSweepMeasurement(
         new_end = end
 
     with meas.run() as datasaver:
-        print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
+        print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min") # wasn't printed and swept directly to 400mK making only a measurement in the end
         kiutra.adr(value=new_end, 
                    adr_mode=adr_mode, 
                    operation_mode=operation_mode, 
@@ -486,7 +487,7 @@ def ADRSweepMeasurement(
             )
             time.sleep(delay)
 
-        kiutra.adr(end)
+        #kiutra.adr(end)
         return datasaver.dataset
     
 def B_condition(B: float, start: float, end: float) -> bool:
