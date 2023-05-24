@@ -73,13 +73,13 @@ class KiutraIns(Instrument):
             vals=vals.Strings(),
         )
 
-        self.add_parameter(
-            "heater",
-            label="Heater Control",
-            unit="K",
-            vals=vals.Numbers(4, 300),
-            parameter_class=Heater_Control,
-        )
+        # self.add_parameter(
+        #     "heater",
+        #     label="Heater Control",
+        #     unit="K",
+        #     vals=vals.Numbers(4, 300),
+        #     parameter_class=Heater_Control,
+        # )
 
         self.add_parameter(
             "loader",
@@ -389,11 +389,12 @@ def TSweepMeasurement(
     start: float,
     end: float,
     rate: float,
-    delay: float,
+    interval: float,
     *param_meas,
+    step_mode: str='time',
     write_period: float=5.0,
     overshoot: bool=False,
-    overshoot_val: float=0.01,
+    overshoot_val: float=0.02,
     
 ):
     meas = Measurement()
@@ -409,16 +410,39 @@ def TSweepMeasurement(
     kiutra.temperature(start)
     while not kiutra.temperature.temperature_control.stable:
         time.sleep(0.1)
+    
+    new_end = overshoot_function(overshoot, start, end, overshoot_val)
 
-    if overshoot == True:
-        new_end = end + np.sign(end - start) * overshoot_val
-    elif overshoot == False:
-        new_end = end
+    if step_mode == 'time':
+        def wait_for_setpoint(kiutra: KiutraIns, start: float, end: float, delay: float, setpoints_measured: list) -> None:
+            time.sleep(delay)
+    elif step_mode == 'temp':
+        def is_setpoint_close(distance_to_setpoints: np.ndarray, setpoints: np.ndarray, setpoints_measured: list) -> bool, list:
+            if len(setpoints_measured)==len(setpoints):
+                return True, setpoints_measured
+            for distance_to_setpoint, setpoint in zip(abs(distance_to_setpoints), setpoints):
+                if distance_to_setpoint < 0.0005 and setpoint not in setpoints_measured:
+                    setpoints_measured.append(setpoint)
+                    return True, setpoints_measured
+                else:
+                    continue
+            return False, setpoints_measured
+        
+        def wait_for_setpoint(kiutra: KiutraIns, start: float, end: float, interval: float, setpoints_measured: list) -> list:
+            setpoints = np.arange(start, end + interval, interval)
+            distance_to_setpoints = setpoints - kiutra.adr()
+            do_measurement = False
+            while not do_measurement:
+                distance_to_setpoints = setpoints - kiutra.adr()
+                do_measurement, setpoints_measured = is_setpoint_close(distance_to_setpoints, setpoints, setpoints_measured)
+                time.sleep(0.01)
+            return setpoints_measured
 
     with meas.run() as datasaver:
         kiutra.temperature.sweep(start, new_end, rate)
         stable = False
         T_2 = start
+        setpoints_measured = []
         while all((not stable, T_condition(T_2, start, end))):
             stable = kiutra.temperature.temperature_control.stable
             T_1 = kiutra.temperature()
@@ -427,7 +451,8 @@ def TSweepMeasurement(
             datasaver.add_result(
                 (kiutra.temperature, (T_1 + T_2) / 2.0), *params_get
             )
-            time.sleep(delay)
+            #time.sleep(delay)
+            setpoints_measured = wait_for_setpoint(kiutra, start, end, interval, setpoints_measured)
 
         #kiutra.temperature(end)
         return datasaver.dataset
@@ -438,9 +463,10 @@ def ADRSweepMeasurement(
     start: float,
     end: float,
     rate: float,
-    delay: float,
+    interval: float,
     *param_meas,
     write_period: float=5.0,
+    step_mode: str='time',
     adr_mode: int=None,
     operation_mode: str=None, 
     auto_regenerate: bool=False, 
@@ -463,10 +489,7 @@ def ADRSweepMeasurement(
         while not kiutra.adr.adr_control.stable:
             time.sleep(0.1) # it didn't appear to be stuck here
    
-    if overshoot == True:
-        new_end = end + np.sign(end - start) * overshoot_val
-    elif overshoot == False:
-        new_end = end
+    new_end = overshoot_function(overshoot, start, end, overshoot_val)
 
     with meas.run() as datasaver:
         print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min") # wasn't printed and swept directly to 400mK making only a measurement in the end
@@ -477,6 +500,7 @@ def ADRSweepMeasurement(
                    pre_regenerate=pre_regenerate)
         stable = False
         T_2 = start
+
         while all((not stable, T_condition(T_2, start, end))):
             stable = kiutra.adr.adr_control.stable
             T_1 = kiutra.adr.adr_control.kelvin
@@ -485,7 +509,7 @@ def ADRSweepMeasurement(
             datasaver.add_result(
                 (kiutra.adr, (T_1 + T_2) / 2.0), *params_get
             )
-            time.sleep(delay)
+            time.sleep(interval)
 
         #kiutra.adr(end)
         return datasaver.dataset
@@ -501,3 +525,9 @@ def T_condition(T: float, start: float, end: float) -> bool:
         return T < end
     elif start > end:
         return T > end
+    
+def overshoot_function(overshoot: bool, start: float, end: float, overshoot_val: float) -> float:
+    if overshoot == True:
+        return end + np.sign(end - start) * overshoot_val
+    elif overshoot == False:
+        return end
