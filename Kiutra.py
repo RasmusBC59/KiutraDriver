@@ -349,7 +349,7 @@ def BSweepMeasurement(
         kiutra.magnetic_field.sweep(start, end)
         stable = False
         B_2 = start
-        while all((not stable, B_condition(B_2, start, end))):
+        while all((not stable, up_down_condition(B_2, start, end))):
             stable = kiutra.magnetic_field.sample_magnet.stable
             B_1 = kiutra.magnetic_field.sample_magnet.field
             params_get = [(param, param.get()) for param in params]
@@ -421,7 +421,7 @@ def TSweepMeasurement(
         stable = False
         T_2 = start
         setpoints_measured = []
-        while all((not stable, T_condition(T_2, start, end))):
+        while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.temperature.temperature_control.stable
             T_1 = kiutra.temperature()
             params_get = [(param, param.get()) for param in params]
@@ -479,7 +479,7 @@ def ADRSweepMeasurement(
         stable = False
         T_2 = start
 
-        while all((not stable, T_condition(T_2, start, end))):
+        while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.adr.adr_control.stable
             T_1 = kiutra.adr.adr_control.kelvin
             params_get = [(param, param.get()) for param in params]
@@ -492,20 +492,17 @@ def ADRSweepMeasurement(
         #kiutra.adr(end)
         return datasaver.dataset
     
-def B_condition(B: float, start: float, end: float) -> bool:
+def up_down_condition(value: float, start: float, end: float) -> bool:
     if start < end:
-        return B < end
+        return value < end
     elif start > end:
-        return B > end
+        return value > end
+    else:
+        raise ValueError(f"start {start} and end {end} can not be equal")
 
-def T_condition(T: float, start: float, end: float) -> bool:
-    if start < end:
-        return T < end
-    elif start > end:
-        return T > end
     
 def overshoot_function(overshoot: bool, start: float, end: float, overshoot_val: float) -> float:
-    if overshoot == True:
+    if overshoot:
         return end + np.sign(end - start) * overshoot_val
-    elif overshoot == False:
+    else:
         return end
