@@ -95,27 +95,16 @@ class KiutraIns(Instrument):
         )
 
     
-    def get_controller_status(self) -> str:
-        if self.magnetic_field._is_active() == True:
-            print("Sample magnet is active")
-        elif self.magnetic_field._is_active() == False:
-            print("Sample magnet is inactive")
-        if self.temperature._is_active() == True:
-            print("Temperature control is active")
-        elif self.temperature._is_active() == False:
-            print("Temperature control is inactive")
-        if self.adr._is_active() == True:
-            print("ADR control is active")
-        elif self.adr._is_active() == False:
-            print("ADR control is inactive")
-        # if self.heater._is_active() == True:
-        #     print("Heater control is active")
-        # elif self.heater._is_active() == False:
-        #     print("Heater control is inactive")
-        if self.loader._is_active() == True:
-            print("Loader is active")
-        elif self.loader._is_active() == False:
-            print("Loader is inactive")
+    def get_controller_status(self) -> None: # is should als0 change name to print_controller_status
+        true_to_active = {True: "active", False:"inactive"}
+        print(f'Sample magnet is {true_to_active[self.magnetic_field._is_active()]}\n'
+              f"Temperature control is {true_to_active[self.temperature._is_active()]}\n"
+              f"ADR control is {true_to_active[self.adr._is_active()]}\n"
+              f"Loader is {true_to_active[self.loader._is_active()]}\n"
+             )
+
+            
+
 
 
 class MagneticField(Parameter):
