@@ -119,14 +119,13 @@ class MagneticField(Parameter):
         if self.sample_magnet.is_blocked == True:
             raise ValueError(f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}")
-        else:
-            self.sample_magnet.start((value, self.root_instrument.magnetic_field_rate()))
-            while True:
-                self._get_info()
-                self._print_info(value)
-                if self.sample_magnet.stable:
-                    break
-                time.sleep(1)
+        self.sample_magnet.start((value, self.root_instrument.magnetic_field_rate()))
+        while True:
+            self._get_info()
+            self._print_info(value)
+            if self.sample_magnet.stable:
+                break
+            time.sleep(1)
 
     def _get_info(self) -> None:
         self.B = self.sample_magnet.field
@@ -168,25 +167,20 @@ class TemperatureControl(Parameter):
         if self.temperature_control.is_blocked == True:
             raise ValueError(f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}")
-        else:
-            if self.check_range(value) == True:
-                self.temperature_control.start((value, self.root_instrument.temperature_rate()))
-                while True:
-                    self._get_info()
-                    self._print_info()
-                    if self.temperature_control.stable:
-                        break
-                    time.sleep(1)
+        if self.check_range(value) == True:
+            self.temperature_control.start((value, self.root_instrument.temperature_rate()))
+            while True:
+                self._get_info()
+                self._print_info()
+                if self.temperature_control.stable:
+                    break
+                time.sleep(1)
 
     def check_range(self, T: float) -> bool:
         self.mode = self.get_mode()
-        if T < 0.3:
-            if self.mode == "cadr":
-                raise ValueError("Temperatures below 0.3K are not possible in continuous ADR mode")
-            else:
-                return True
-        else:
-            return True
+        if T < 0.3 and self.mode == "cadr":
+            raise ValueError("Temperatures below 0.3K are not possible in continuous ADR mode")
+        return True
 
     def _get_info(self) -> None:
         self.setpoint = self.temperature_control.internal_setpoint
@@ -203,7 +197,7 @@ class TemperatureControl(Parameter):
         return self.ramping_info["ramp_done"] and self.ramping_info["ready_to_ramp"]
 
     def sweep(self, start: float, end: float, rate: float=None) -> None:
-        if rate == None:
+        if rate is None:
             rate = self.root_instrument.temperature_rate()
         if self.check_range(end) == True:
             print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
@@ -244,41 +238,36 @@ class ADR_Control(Parameter):
                 operation_mode: str=None, 
                 auto_regenerate: bool=False, 
                 pre_regenerate: bool=False) -> None:
-        if self.adr_control.is_blocked == True:
+        if self.adr_control.is_blocked:
             raise ValueError(f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}")
-        else:
-            if operation_mode == None:
-                operation_mode = self.get_mode()
-            if self.check_range(value, operation_mode) == True:
-                if rate == None:
-                    rate = self.root_instrument.temperature_rate()
-                self.adr_control.start_adr(setpoint=value, 
-                                            ramp=rate,
-                                            adr_mode=adr_mode, 
-                                            operation_mode=operation_mode,
-                                            auto_regenerate=auto_regenerate,
-                                            pre_regenerate=pre_regenerate)
-                while True:
-                    self._get_info()
-                    self._print_info(value)
-                    if self.adr_control.stable:
-                        break
-                    time.sleep(1)
+        if operation_mode == None:
+            operation_mode = self.get_mode()
+        if self.check_range(value, operation_mode) == True:
+            if rate == None:
+                rate = self.root_instrument.temperature_rate()
+            self.adr_control.start_adr(setpoint=value, 
+                                        ramp=rate,
+                                        adr_mode=adr_mode, 
+                                        operation_mode=operation_mode,
+                                        auto_regenerate=auto_regenerate,
+                                        pre_regenerate=pre_regenerate)
+            while True:
+                self._get_info()
+                self._print_info(value)
+                if self.adr_control.stable:
+                    break
+                time.sleep(1)
 
     def check_range(self, value: float, mode: str=None) -> bool:
         self.assign_mode(mode)
-        if value < 0.3:
-            if self.mode == "cadr":
-                raise ValueError(f"Temperatures below 0.3K are not possible in continuous ADR mode: use KiutraIns.adr({value}, " \
-                                 + "operation_mode=\"adr\")")
-            else:
-                return True
-        else:
-            return True
+        if value < 0.3 and self.mode == "cadr":
+            raise ValueError(f"Temperatures below 0.3K are not possible in continuous ADR mode: use KiutraIns.adr({value}, " \
+                                + "operation_mode=\"adr\")")
+        return True
         
     def assign_mode(self, mode: str) -> None:
-        if mode == None:
+        if mode is None:
             self.mode = self.get_mode()
         else:
             self.mode = mode
