@@ -37,15 +37,15 @@ class KiutraIns(Instrument):
             unit="T/min",
             vals=vals.Numbers(0.01, 1.0),
             initial_value=0.1,
-            set_cmd = lambda x: x
+            set_cmd = lambda x: x,
         )
 
         self.add_parameter(
             "temperature",
             label="Temperature",
             unit="K",
-            parameter_class=TemperatureControl,
-            vals=vals.Numbers(0.1, 300), #could make it (0.3, 300)
+            parameter_class=Temperature,
+            vals=vals.Numbers(0.1, 300),
         )
 
         self.add_parameter(
@@ -54,7 +54,7 @@ class KiutraIns(Instrument):
             unit="K/min",
             vals=vals.Numbers(0.01, 4.0),
             initial_value=0.1,
-            set_cmd = lambda x: x
+            set_cmd = lambda x: x,
         )
 
         self.add_parameter(
@@ -62,7 +62,7 @@ class KiutraIns(Instrument):
             label="ADR Control",
             unit="K",
             vals=vals.Numbers(0.1, 300),
-            parameter_class=ADR_Control,
+            parameter_class=ADR_Temperature,
         )
 
         self.add_parameter(
@@ -94,28 +94,27 @@ class KiutraIns(Instrument):
             get_cmd=self.get_controller_status,
         )
 
-    
     def get_controller_status(self) -> str:
         if self.magnetic_field._is_active() == True:
-            print("Sample magnet is active")
+            print("Sample Magnet: {:>10} active".format(''))
         elif self.magnetic_field._is_active() == False:
-            print("Sample magnet is inactive")
+            print("Sample Magnet: {:>10} inactive".format(''))
         if self.temperature._is_active() == True:
-            print("Temperature control is active")
+            print("Temperature Control: {:>4} active".format(''))
         elif self.temperature._is_active() == False:
-            print("Temperature control is inactive")
+            print("Temperature Control: {:>4} inactive".format(''))
         if self.adr._is_active() == True:
-            print("ADR control is active")
+            print("ADR Control: {:>12} active".format(''))
         elif self.adr._is_active() == False:
-            print("ADR control is inactive")
+            print("ADR Control: {:>12} inactive".format(''))
         # if self.heater._is_active() == True:
-        #     print("Heater control is active")
+        #     print("Heater: {:>17} active".format(''))
         # elif self.heater._is_active() == False:
-        #     print("Heater control is inactive")
+        #     print("Heater: {:>17} inactive".format(''))
         if self.loader._is_active() == True:
-            print("Loader is active")
+            print("Loader: {:>17} active".format(''))
         elif self.loader._is_active() == False:
-            print("Loader is inactive")
+            print("Loader: {:>17} inactive".format(''))
 
 
 class MagneticField(Parameter):
@@ -165,7 +164,7 @@ class MagneticField(Parameter):
         return self.sample_magnet.is_active
 
 
-class TemperatureControl(Parameter):
+class Temperature(Parameter):
     def __init__(self, name: str, **kwargs: Any) -> None:
         super().__init__(name, **kwargs)
         self.temperature_control = ContinuousTemperatureControl(
@@ -239,7 +238,7 @@ class TemperatureControl(Parameter):
         return self.temperature_control.is_active
     
 
-class ADR_Control(Parameter):
+class ADR_Temperature(Parameter):
     def __init__(self, name: str, **kwargs: Any) -> None:
         super().__init__(name, **kwargs)
         self.adr_control = ADRControl(
@@ -373,9 +372,9 @@ def BSweepMeasurement(
         B_2 = start
         while all((not stable, B_condition(B_2, start, end))):
             stable = kiutra.magnetic_field.sample_magnet.stable
-            B_1 = kiutra.magnetic_field.sample_magnet.field
+            B_1 = kiutra.magnetic_field()
             params_get = [(param, param.get()) for param in params]
-            B_2 = kiutra.magnetic_field.sample_magnet.field
+            B_2 = kiutra.magnetic_field()
             datasaver.add_result(
                 (kiutra.magnetic_field, (B_1 + B_2) / 2.0), *params_get
             )
@@ -392,10 +391,10 @@ def TSweepMeasurement(
     interval: float,
     *param_meas,
     step_mode: str='time',
+    interval_precision: float=5e-4,
     write_period: float=5.0,
     overshoot: bool=False,
     overshoot_val: float=0.02,
-    
 ):
     meas = Measurement()
     meas.write_period = write_period
@@ -414,14 +413,14 @@ def TSweepMeasurement(
     new_end = overshoot_function(overshoot, start, end, overshoot_val)
 
     if step_mode == 'time':
-        def wait_for_setpoint(kiutra: KiutraIns, start: float, end: float, delay: float, setpoints_measured: list) -> None:
-            time.sleep(delay)
+        def wait_for_setpoint(kiutra: KiutraIns, start: float, end: float, interval: float, setpoints_measured: list) -> None:
+            time.sleep(interval)
     elif step_mode == 'temp':
         def is_setpoint_close(distance_to_setpoints: np.ndarray, setpoints: np.ndarray, setpoints_measured: list) -> bool, list:
             if len(setpoints_measured)==len(setpoints):
                 return True, setpoints_measured
             for distance_to_setpoint, setpoint in zip(abs(distance_to_setpoints), setpoints):
-                if distance_to_setpoint < 0.0005 and setpoint not in setpoints_measured:
+                if distance_to_setpoint < interval_precision and setpoint not in setpoints_measured:
                     setpoints_measured.append(setpoint)
                     return True, setpoints_measured
                 else:
@@ -487,12 +486,12 @@ def ADRSweepMeasurement(
     if abs(start - kiutra.adr()) > 0.001:
         kiutra.adr(start, operation_mode=operation_mode)
         while not kiutra.adr.adr_control.stable:
-            time.sleep(0.1) # it didn't appear to be stuck here
+            time.sleep(0.1)
    
     new_end = overshoot_function(overshoot, start, end, overshoot_val)
 
     with meas.run() as datasaver:
-        print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min") # wasn't printed and swept directly to 400mK making only a measurement in the end
+        print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
         kiutra.adr(value=new_end, 
                    adr_mode=adr_mode, 
                    operation_mode=operation_mode, 
@@ -503,9 +502,10 @@ def ADRSweepMeasurement(
 
         while all((not stable, T_condition(T_2, start, end))):
             stable = kiutra.adr.adr_control.stable
-            T_1 = kiutra.adr.adr_control.kelvin
+            T_1 = kiutra.adr()
+            print(T_1)
             params_get = [(param, param.get()) for param in params]
-            T_2 = kiutra.adr.adr_control.kelvin
+            T_2 = kiutra.adr()
             datasaver.add_result(
                 (kiutra.adr, (T_1 + T_2) / 2.0), *params_get
             )
