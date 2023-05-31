@@ -133,14 +133,10 @@ class MagneticField(Parameter):
         self.stable = self.sample_magnet.stable
 
     def _print_info(self, setpoint: float) -> None:
-        if self.B > setpoint:
-            print(
-                f"B = {self.B:.3f}T (sweeping down to {setpoint}T, stable={self.stable})"
-            )
-        if self.B < setpoint:
-            print(
-                f"B = {self.B:.3f}T (sweeping up to {setpoint}T, stable={self.stable})"
-            )
+        up_down = {True: "up", False: "Down"}
+        print(
+            f"B = {self.B:.3f}T (sweeping {up_down[self.B < setpoint]} to {setpoint}T, stable={self.stable})"
+        )
 
     def sweep(self, start: float, end: float) -> None:
         rate = self.root_instrument.magnetic_field_rate()
