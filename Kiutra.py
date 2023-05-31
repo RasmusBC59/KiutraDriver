@@ -8,8 +8,8 @@ from kiutra_api.controller_interfaces import (
     ContinuousTemperatureControl,
     MagnetControl,
     SampleControl,
-    HeaterControl,
 )
+
 from qcodes import validators as vals
 from qcodes.dataset import Measurement
 from qcodes.instrument import Instrument
@@ -17,6 +17,13 @@ from qcodes.parameters import Parameter, ParameterBase
 
 
 class KiutraIns(Instrument):
+    """
+    TODO: ADRSweepMeasurement: Only a single datapoint is saved, that being the measurement 
+    taken at the end temp. The function is built the same way as TSweepMeasurement, which 
+    doesn't suffer from that issue.
+    TODO: All sweep function: Regularly spaced measurement points. Currently the setpoints
+    aren't regularly spaced.
+    """
     def __init__(self, name: str, address: str, **kwargs: Any):
         super().__init__(name, **kwargs)
         self.host = address
@@ -45,7 +52,7 @@ class KiutraIns(Instrument):
             label="Temperature",
             unit="K",
             parameter_class=TemperatureControl,
-            vals=vals.Numbers(0.1, 300),  # could make it (0.3, 300)
+            vals=vals.Numbers(0.1, 300),
         )
 
         self.add_parameter(
@@ -69,17 +76,8 @@ class KiutraIns(Instrument):
             "operation_mode",
             label="Operation mode",
             get_cmd=self.adr.get_mode,
-            # set_cmd=self.adr.set_mode,
             vals=vals.Strings(),
         )
-
-        # self.add_parameter(
-        #     "heater",
-        #     label="Heater Control",
-        #     unit="K",
-        #     vals=vals.Numbers(4, 300),
-        #     parameter_class=Heater_Control,
-        # )
 
         self.add_parameter(
             "loader",
@@ -91,18 +89,18 @@ class KiutraIns(Instrument):
         self.add_parameter(
             "controllers",
             label="Controller Status",
-            get_cmd=self.get_controller_status,
+            get_cmd=self.print_controller_status,
         )
 
-    def get_controller_status(
+    def print_controller_status(
         self,
-    ) -> None:  # is should als0 change name to print_controller_status
+    ) -> None:
         true_to_active = {True: "active", False: "inactive"}
         print(
-            f"Sample magnet is {true_to_active[self.magnetic_field._is_active()]}\n"
-            f"Temperature control is {true_to_active[self.temperature._is_active()]}\n"
-            f"ADR control is {true_to_active[self.adr._is_active()]}\n"
-            f"Loader is {true_to_active[self.loader._is_active()]}\n"
+            "Sample Magnet: {:>10}".format('') + f"{true_to_active[self.magnetic_field._is_active()]}\n"
+            "Temperature control: {:>4}".format('') + f"{true_to_active[self.temperature._is_active()]}\n"
+            "ADR control: {:>12}".format('') + f"{true_to_active[self.adr._is_active()]}\n"
+            "Loader: {:>17}".format('') + f"{true_to_active[self.loader._is_active()]}\n"
         )
 
 
@@ -134,6 +132,7 @@ class MagneticField(Parameter):
 
     def _print_info(self, setpoint: float) -> None:
         up_down = {True: "up", False: "Down"}
+        true_to_stable = {True: "stable", False: "unstable"}
         print(
             f"B = {self.B:.3f}T (sweeping {up_down[self.B < setpoint]} to {setpoint}T, stable={self.stable})"
         )
@@ -154,7 +153,7 @@ class MagneticField(Parameter):
         return self.sample_magnet.is_active
 
 
-class Temperature(Parameter):
+class TemperatureControl(Parameter):
     def __init__(self, name: str, **kwargs: Any) -> None:
         super().__init__(name, **kwargs)
         self.temperature_control = ContinuousTemperatureControl(
@@ -176,7 +175,7 @@ class Temperature(Parameter):
             )
             while True:
                 self._get_info()
-                self._print_info()
+                self._print_info(value)
                 if self.temperature_control.stable:
                     break
                 time.sleep(1)
@@ -194,15 +193,11 @@ class Temperature(Parameter):
         self.stable = self.temperature_control.stable
         self.T = self.temperature_control.kelvin
 
-    def _print_info(self) -> None:
-        if self.T > self.setpoint:
-            print(
-                f"T = {self.T:.3f}K (sweeping down to {self.setpoint}K, stable={self.stable})"
-            )
-        if self.T < self.setpoint:
-            print(
-                f"T = {self.T:.3f}K (sweeping up to {self.setpoint}K, stable={self.stable})"
-            )
+    def _print_info(self, setpoint: float) -> None:
+        up_down = {True: "up", False: "Down"}
+        print(
+            f"T = {self.T:.3f}K (sweeping {up_down[self.T < setpoint]} to {setpoint}K, stable={self.stable})"
+        )
 
     def _is_done(self) -> bool:
         return self.ramping_info["ramp_done"] and self.ramping_info["ready_to_ramp"]
@@ -217,17 +212,12 @@ class Temperature(Parameter):
     def get_mode(self) -> str:
         return self.root_instrument.operation_mode()
 
-    # def set_mode(self, mode: str) -> str:
-    #     self.adr_control = ADRControl("adr_control", self.root_instrument.host)
-    #     self.adr_control.operation_mode(mode)
-    #     return f"ADR mode is set to {self.get_mode()}"
-
     def get_blocks(self) -> str:
         return self.temperature_control.is_blocked_by
 
     def interrupt(self) -> str:
         self.temperature_control.stop()
-        return "Temperature control operation ended"
+        return "Temperature Control has ended"
 
     def _is_active(self) -> bool:
         return self.temperature_control.is_active
@@ -255,11 +245,13 @@ class ADR_Temperature(Parameter):
                 f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}"
             )
+        
         if operation_mode == None:
             operation_mode = self.get_mode()
+        if rate == None:
+            rate = self.root_instrument.temperature_rate()
+
         if self.check_range(value, operation_mode) == True:
-            if rate == None:
-                rate = self.root_instrument.temperature_rate()
             self.adr_control.start_adr(
                 setpoint=value,
                 ramp=rate,
@@ -302,21 +294,17 @@ class ADR_Temperature(Parameter):
         self.T = self.adr_control.kelvin
 
     def _print_info(self, setpoint: float) -> None:
-        if self.T > setpoint:
-            print(
-                f"T = {self.T:.3f}K (sweeping down to {setpoint}K, stable={self.stable})"
-            )
-        if self.T < setpoint:
-            print(
-                f"T = {self.T:.3f}K (sweeping up to {setpoint}K, stable={self.stable})"
-            )
+        up_down = {True: "up", False: "Down"}
+        print(
+            f"T = {self.T:.3f}K (sweeping {up_down[self.T < setpoint]} to {setpoint}K, stable={self.stable})"
+        )
 
     def get_blocks(self) -> str:
         return self.adr_control.is_blocked_by
 
     def interrupt(self) -> str:
         self.adr_control.stop()
-        return "ADR control operation ended"
+        return "ADR Control has ended"
 
     def _is_active(self) -> bool:
         return self.adr_control.is_active
@@ -328,7 +316,8 @@ class SampleLoader(Parameter):
         self.sample_loader = SampleControl("sample_loader", self.root_instrument.host)
 
     def get_raw(self) -> str:
-        return f"The puck is connected: {self.get_connection_status()}"
+        true_to_connected = {True: "connected", False: "not connected"}
+        return f"The puck is {true_to_connected[self.get_connection_status()]}"
 
     def get_connection_status(self) -> bool:
         return self.sample_loader.sample_loaded
@@ -338,7 +327,7 @@ class SampleLoader(Parameter):
 
     def interrupt(self) -> str:
         self.sample_loader.stop()
-        return "Sample loader control operation ended"
+        return "Sample Loader Control has ended"
 
     def _is_active(self) -> bool:
         return self.sample_loader.is_active
@@ -389,13 +378,11 @@ def TSweepMeasurement(
     start: float,
     end: float,
     rate: float,
-    interval: float,
+    step_interval: float,
     *param_meas,
     step_mode: str='time',
     interval_precision: float=5e-4,
     write_period: float=5.0,
-    overshoot: bool=False,
-    overshoot_val: float=0.02,
 ):
     meas = Measurement()
     meas.write_period = write_period
@@ -411,35 +398,8 @@ def TSweepMeasurement(
     while not kiutra.temperature.temperature_control.stable:
         time.sleep(0.1)
 
-    new_end = overshoot_function(overshoot, start, end, overshoot_val)
-
-    if step_mode == 'time':
-        def wait_for_setpoint(kiutra: KiutraIns, start: float, end: float, interval: float, setpoints_measured: list) -> None:
-            time.sleep(interval)
-    elif step_mode == 'temp':
-        def is_setpoint_close(distance_to_setpoints: np.ndarray, setpoints: np.ndarray, setpoints_measured: list) -> bool, list:
-            if len(setpoints_measured)==len(setpoints):
-                return True, setpoints_measured
-            for distance_to_setpoint, setpoint in zip(abs(distance_to_setpoints), setpoints):
-                if distance_to_setpoint < interval_precision and setpoint not in setpoints_measured:
-                    setpoints_measured.append(setpoint)
-                    return True, setpoints_measured
-                else:
-                    continue
-            return False, setpoints_measured
-        
-        def wait_for_setpoint(kiutra: KiutraIns, start: float, end: float, interval: float, setpoints_measured: list) -> list:
-            setpoints = np.arange(start, end + interval, interval)
-            distance_to_setpoints = setpoints - kiutra.adr()
-            do_measurement = False
-            while not do_measurement:
-                distance_to_setpoints = setpoints - kiutra.adr()
-                do_measurement, setpoints_measured = is_setpoint_close(distance_to_setpoints, setpoints, setpoints_measured)
-                time.sleep(0.01)
-            return setpoints_measured
-
     with meas.run() as datasaver:
-        kiutra.temperature.sweep(start, new_end, rate)
+        kiutra.temperature.sweep(start, end, rate)
         stable = False
         T_2 = start
         setpoints_measured = []
@@ -456,11 +416,10 @@ def TSweepMeasurement(
                 start,
                 end,
                 setpoints_measured,
-                delay,
-                interval,
+                step_interval,
+                interval_precision
             )
 
-        # kiutra.temperature(end)
         return datasaver.dataset
 
 
@@ -470,32 +429,38 @@ def wait_for_next_setpoint(
     start: float,
     end: float,
     setpoints_measured: list,
-    delay: float,
-    interval: float,
+    step_interval: float,
+    interval_precision: float,
 ) -> Optional[list]:
     if step_mode == "time":
-        time.sleep(delay)
+        time.sleep(step_interval)
         return None
     elif step_mode == "temp":
-        setpoints = np.arange(start, end + interval, interval)
+        setpoints = np.arange(start, end + step_interval, step_interval)
         distance_to_setpoints = setpoints - kiutra.adr()
         do_measurement = False
         while not do_measurement:
             distance_to_setpoints = setpoints - kiutra.adr()
             do_measurement, setpoints_measured = is_setpoint_close(
-                distance_to_setpoints, setpoints, setpoints_measured
+                distance_to_setpoints, 
+                setpoints, 
+                setpoints_measured,
+                interval_precision,
             )
             time.sleep(0.01)
         return setpoints_measured
 
 
 def is_setpoint_close(
-    distance_to_setpoints: np.ndarray, setpoints: np.ndarray, setpoints_measured: list
+    distance_to_setpoints: np.ndarray, 
+    setpoints: np.ndarray, 
+    setpoints_measured: list,
+    interval_percision: float,
 ) -> tuple(bool, list):
     if len(setpoints_measured) == len(setpoints):
         return True, setpoints_measured
     for distance_to_setpoint, setpoint in zip(abs(distance_to_setpoints), setpoints):
-        if distance_to_setpoint < 0.0005 and setpoint not in setpoints_measured:
+        if distance_to_setpoint < interval_percision and setpoint not in setpoints_measured:
             setpoints_measured.append(setpoint)
             return True, setpoints_measured
         else:
@@ -508,7 +473,7 @@ def ADRSweepMeasurement(
     start: float,
     end: float,
     rate: float,
-    interval: float,
+    step_interval: float,
     *param_meas,
     write_period: float = 5.0,
     step_mode: str = "time",
@@ -516,8 +481,6 @@ def ADRSweepMeasurement(
     operation_mode: str = None,
     auto_regenerate: bool = False,
     pre_regenerate: bool = False,
-    overshoot: bool = False,
-    overshoot_val: float = 0.01,
 ):
     meas = Measurement()
     meas.write_period = write_period
@@ -533,12 +496,10 @@ def ADRSweepMeasurement(
         kiutra.adr(start, operation_mode=operation_mode)
         while not kiutra.adr.adr_control.stable:
             time.sleep(0.1)
-   
-    new_end = overshoot_function(overshoot, start, end, overshoot_val)
 
     with meas.run() as datasaver:
         print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
-        kiutra.adr(value=new_end, 
+        kiutra.adr(value=end, 
                    adr_mode=adr_mode, 
                    operation_mode=operation_mode, 
                    auto_regenerate=auto_regenerate, 
@@ -555,25 +516,14 @@ def ADRSweepMeasurement(
             datasaver.add_result(
                 (kiutra.adr, (T_1 + T_2) / 2.0), *params_get
             )
-            time.sleep(interval)
+            time.sleep(step_interval)
 
         # kiutra.adr(end)
         return datasaver.dataset
 
 
 def up_down_condition(value: float, start: float, end: float) -> bool:
-    if start < end:
-        return value < end
-    elif start > end:
-        return value > end
+    if start != end:
+        return 0 < np.sign(end - start) * (end - value)
     else:
         raise ValueError(f"start {start} and end {end} can not be equal")
-
-
-def overshoot_function(
-    overshoot: bool, start: float, end: float, overshoot_val: float
-) -> float:
-    if overshoot:
-        return end + np.sign(end - start) * overshoot_val
-    else:
-        return end
