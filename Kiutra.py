@@ -1,6 +1,7 @@
 import time
 from typing import Any, Optional
 import numpy as np
+import numpy.typing as npt
 
 from kiutra_api.api_client import KiutraClient
 from kiutra_api.controller_interfaces import (
@@ -97,10 +98,14 @@ class KiutraIns(Instrument):
     ) -> None:
         true_to_active = {True: "active", False: "inactive"}
         print(
-            "Sample Magnet: {:>10}".format('') + f"{true_to_active[self.magnetic_field._is_active()]}\n"
-            "Temperature control: {:>4}".format('') + f"{true_to_active[self.temperature._is_active()]}\n"
-            "ADR control: {:>12}".format('') + f"{true_to_active[self.adr._is_active()]}\n"
-            "Loader: {:>17}".format('') + f"{true_to_active[self.loader._is_active()]}\n"
+            "Sample Magnet: {:>10}".format('') \
+            + f"{true_to_active[self.magnetic_field._is_active()]}\n"
+            "Temperature control: {:>4}".format('') \
+            + f"{true_to_active[self.temperature._is_active()]}\n"
+            "ADR control: {:>12}".format('')\
+            + f"{true_to_active[self.adr._is_active()]}\n"
+            "Loader: {:>17}".format('') \
+            + f"{true_to_active[self.loader._is_active()]}\n"
         )
 
 
@@ -134,7 +139,8 @@ class MagneticField(Parameter):
         up_down = {True: "up", False: "Down"}
         true_to_stable = {True: "stable", False: "unstable"}
         print(
-            f"B = {self.B:.3f}T (sweeping {up_down[self.B < setpoint]} to {setpoint}T, stable={self.stable})"
+            f"B = {self.B:.3f}T (sweeping {up_down[self.B < setpoint]} \
+            to {setpoint}T, stable={self.stable})"
         )
 
     def sweep(self, start: float, end: float) -> None:
@@ -196,7 +202,8 @@ class TemperatureControl(Parameter):
     def _print_info(self, setpoint: float) -> None:
         up_down = {True: "up", False: "Down"}
         print(
-            f"T = {self.T:.3f}K (sweeping {up_down[self.T < setpoint]} to {setpoint}K, stable={self.stable})"
+            f"T = {self.T:.3f}K (sweeping {up_down[self.T < setpoint]} \
+            to {setpoint}K, stable={self.stable})"
         )
 
     def _is_done(self) -> bool:
@@ -271,8 +278,8 @@ class ADR_Temperature(Parameter):
         self.assign_mode(mode)
         if value < 0.3 and self.mode == "cadr":
             raise ValueError(
-                f"Temperatures below 0.3K are not possible in continuous ADR mode: use KiutraIns.adr({value}, "
-                + 'operation_mode="adr")'
+                f"Temperatures below 0.3K are not possible in continuous ADR mode: \
+                    use KiutraIns.adr({value}, " + 'operation_mode="adr")'
             )
         return True
 
@@ -285,10 +292,6 @@ class ADR_Temperature(Parameter):
     def get_mode(self) -> str:
         return self.adr_control.operation_mode
 
-    # def set_mode(self, mode: str) -> str:
-    #     self.adr_control.operation_mode(mode)
-    #     return f"ADR mode is set to {self.get_mode()}"
-
     def _get_info(self) -> None:
         self.stable = self.adr_control.stable
         self.T = self.adr_control.kelvin
@@ -296,7 +299,8 @@ class ADR_Temperature(Parameter):
     def _print_info(self, setpoint: float) -> None:
         up_down = {True: "up", False: "Down"}
         print(
-            f"T = {self.T:.3f}K (sweeping {up_down[self.T < setpoint]} to {setpoint}K, stable={self.stable})"
+            f"T = {self.T:.3f}K (sweeping {up_down[self.T < setpoint]} \
+            to {setpoint}K, stable={self.stable})"
         )
 
     def get_blocks(self) -> str:
@@ -381,7 +385,7 @@ def TSweepMeasurement(
     step_interval: float,
     *param_meas,
     step_mode: str='time',
-    interval_precision: float=5e-4,
+    interval_precision: float=25e-5,
     write_period: float=5.0,
 ):
     meas = Measurement()
@@ -400,16 +404,12 @@ def TSweepMeasurement(
 
     with meas.run() as datasaver:
         kiutra.temperature.sweep(start, end, rate)
+        setpoints = np.arange(start, end + step_interval, step_interval)
         stable = False
         T_2 = start
-        setpoints_measured = []
+        setpoints_measured = set()
         while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.temperature.temperature_control.stable
-            T_1 = kiutra.temperature()
-            params_get = [(param, param.get()) for param in params]
-            T_2 = kiutra.temperature()
-            datasaver.add_result((kiutra.temperature, (T_1 + T_2) / 2.0), *params_get)
-            # time.sleep(delay)
             setpoints_measured = wait_for_next_setpoint(
                 kiutra,
                 step_mode,
@@ -419,28 +419,38 @@ def TSweepMeasurement(
                 step_interval,
                 interval_precision
             )
+            if len(setpoints_measured) == len(setpoints):
+                break
+            
+            T_1 = kiutra.temperature()
+            params_get = [(param, param.get()) for param in params]
+            T_2 = kiutra.temperature()
+            datasaver.add_result(
+                (kiutra.temperature, (T_1 + T_2) / 2.0), 
+                *params_get
+            )
+            # time.sleep(delay)
 
         return datasaver.dataset
 
 
 def wait_for_next_setpoint(
     kiutra: KiutraIns,
-    step_mode,
-    start: float,
-    end: float,
+    step_mode: str,
+    setpoints: npt.NDArray,
     setpoints_measured: list,
     step_interval: float,
     interval_precision: float,
-) -> Optional[list]:
+) -> list:
+    
     if step_mode == "time":
         time.sleep(step_interval)
-        return None
+        return setpoints_measured
+    
     elif step_mode == "temp":
-        setpoints = np.arange(start, end + step_interval, step_interval)
-        distance_to_setpoints = setpoints - kiutra.adr()
         do_measurement = False
         while not do_measurement:
-            distance_to_setpoints = setpoints - kiutra.adr()
+            distance_to_setpoints = setpoints - kiutra.temperature()
             do_measurement, setpoints_measured = is_setpoint_close(
                 distance_to_setpoints, 
                 setpoints, 
@@ -452,16 +462,15 @@ def wait_for_next_setpoint(
 
 
 def is_setpoint_close(
-    distance_to_setpoints: np.ndarray, 
-    setpoints: np.ndarray, 
+    distance_to_setpoints: npt.NDArray, 
+    setpoints: npt.NDArray, 
     setpoints_measured: list,
     interval_percision: float,
 ) -> tuple(bool, list):
-    if len(setpoints_measured) == len(setpoints):
-        return True, setpoints_measured
+    
     for distance_to_setpoint, setpoint in zip(abs(distance_to_setpoints), setpoints):
         if distance_to_setpoint < interval_percision and setpoint not in setpoints_measured:
-            setpoints_measured.append(setpoint)
+            setpoints_measured.add(setpoint)
             return True, setpoints_measured
         else:
             continue
@@ -476,7 +485,6 @@ def ADRSweepMeasurement(
     step_interval: float,
     *param_meas,
     write_period: float = 5.0,
-    step_mode: str = "time",
     adr_mode: int = None,
     operation_mode: str = None,
     auto_regenerate: bool = False,
@@ -509,16 +517,16 @@ def ADRSweepMeasurement(
 
         while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.adr.adr_control.stable
-            T_1 = kiutra.adr()
+            T_1 = kiutra.adr() #maybe measure temp using kiutra.temperature()
             print(T_1)
             params_get = [(param, param.get()) for param in params]
             T_2 = kiutra.adr()
             datasaver.add_result(
-                (kiutra.adr, (T_1 + T_2) / 2.0), *params_get
+                (kiutra.adr, (T_1 + T_2) / 2.0), 
+                *params_get,
             )
             time.sleep(step_interval)
 
-        # kiutra.adr(end)
         return datasaver.dataset
 
 
@@ -526,4 +534,4 @@ def up_down_condition(value: float, start: float, end: float) -> bool:
     if start != end:
         return 0 < np.sign(end - start) * (end - value)
     else:
-        raise ValueError(f"start {start} and end {end} can not be equal")
+        raise ValueError(f"start {start} and end {end} cannot be equal")
