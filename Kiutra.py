@@ -415,7 +415,6 @@ def TSweepMeasurement(
     step_interval: float,
     *param_meas,
     step_mode: str='time',
-    interval_precision: float=25e-5,
     write_period: float=5.0,
 ):
     meas = Measurement()
@@ -438,7 +437,6 @@ def TSweepMeasurement(
         setpoints = np.linspace(end, start, N).tolist()
         stable = False
         T_2 = start
-        #setpoints_measured = set()
         while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.temperature.temperature_control.stable
 
@@ -456,20 +454,6 @@ def TSweepMeasurement(
             else:
                 time.sleep(step_interval)
             
-            # do_measurement = False
-            # while not do_measurement: 
-            #     do_measurement, setpoints_measured = wait_for_next_setpoint(
-            #                                             kiutra,
-            #                                             step_mode,
-            #                                             setpoints,
-            #                                             setpoints_measured,
-            #                                             step_interval,
-            #                                             interval_precision
-            #     )
-            #     time.sleep(0.01)
-            # if len(setpoints_measured) == len(setpoints):
-            #     break
-            
             T_1 = kiutra.temperature()
             params_get = [(param, param.get()) for param in params]
             T_2 = kiutra.temperature()
@@ -477,49 +461,8 @@ def TSweepMeasurement(
                 (kiutra.temperature, (T_1 + T_2) / 2.0), 
                 *params_get
             )
-            # time.sleep(delay)
 
         return datasaver.dataset
-
-
-def wait_for_next_setpoint(
-    kiutra: KiutraIns,
-    step_mode: str,
-    setpoints: npt.NDArray,
-    setpoints_measured: list,
-    step_interval: float,
-    interval_precision: float,
-) -> tuple[list, bool]:
-    
-    if step_mode == "time":
-        time.sleep(step_interval)
-        return setpoints_measured, False
-    
-    elif step_mode == "temp":
-        distance_to_setpoints = setpoints - kiutra.temperature()
-        do_measurement, setpoints_measured = is_setpoint_close(
-                                                distance_to_setpoints, 
-                                                setpoints, 
-                                                setpoints_measured,
-                                                interval_precision,
-        )
-        return do_measurement, setpoints_measured
-
-
-def is_setpoint_close(
-    distance_to_setpoints: npt.NDArray, 
-    setpoints: npt.NDArray, 
-    setpoints_measured: list,
-    interval_percision: float,
-) -> tuple[bool, list]:
-    
-    for distance_to_setpoint, setpoint in zip(abs(distance_to_setpoints), setpoints):
-        if distance_to_setpoint < interval_percision and setpoint not in setpoints_measured:
-            setpoints_measured.add(setpoint)
-            return True, setpoints_measured
-        else:
-            continue
-    return False, setpoints_measured
 
 
 def ADRSweepMeasurement(
@@ -565,7 +508,7 @@ def ADRSweepMeasurement(
 
         while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.adr.adr_control.stable
-            T_1 = kiutra.adr() #maybe measure temp using kiutra.temperature()
+            T_1 = kiutra.adr() 
             params_get = [(param, param.get()) for param in params]
             T_2 = kiutra.adr()
             datasaver.add_result(
