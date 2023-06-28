@@ -18,13 +18,7 @@ from qcodes.parameters import Parameter, ParameterBase
 
 
 class KiutraIns(Instrument):
-    """
-    TODO: ADRSweepMeasurement: Only a single datapoint is saved, that being the measurement 
-    taken at the end temp. The function is built the same way as TSweepMeasurement, which 
-    doesn't suffer from that issue.
-    TODO: All sweep function: Regularly spaced measurement points. Currently the setpoints
-    aren't regularly spaced.
-    """
+
     def __init__(self, name: str, address: str, **kwargs: Any):
         super().__init__(name, **kwargs)
         self.host = address
