@@ -1,5 +1,5 @@
 import time
-from typing import Any, Optional
+from typing import Any, Tuple
 import numpy as np
 import numpy.typing as npt
 
@@ -274,6 +274,36 @@ class ADR_Temperature(Parameter):
                     break
                 time.sleep(1)
 
+    def sweep(
+        self,
+        start: float,
+        value: float,
+        rate: float = None,
+        adr_mode: int = None,
+        operation_mode: str = None,
+        auto_regenerate: bool = False,
+        pre_regenerate: bool = False,
+    ) -> None:
+        if self.adr_control.is_blocked:
+            raise ValueError(
+                f"End the following control sequences before \
+                    setting the temperature: {self.get_blocks()}"
+            )
+        
+        if operation_mode == None:
+            operation_mode = self.get_mode()
+
+        if self.check_range(value, operation_mode) == True:
+            print(f"Starts sweep from {start} K to {value} K ramping {rate} K/min")
+            self.adr_control.start_adr(
+                setpoint=value,
+                ramp=rate,
+                adr_mode=adr_mode,
+                operation_mode=operation_mode,
+                auto_regenerate=auto_regenerate,
+                pre_regenerate=pre_regenerate,
+            )
+
     def check_range(self, value: float, mode: str = None) -> bool:
         self.assign_mode(mode)
         if value < 0.3 and self.mode == "cadr":
@@ -410,15 +440,18 @@ def TSweepMeasurement(
         setpoints_measured = set()
         while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.temperature.temperature_control.stable
-            setpoints_measured = wait_for_next_setpoint(
-                kiutra,
-                step_mode,
-                start,
-                end,
-                setpoints_measured,
-                step_interval,
-                interval_precision
-            )
+            do_measurement = False
+            while not do_measurement: 
+                do_measurement, setpoints_measured = wait_for_next_setpoint(
+                                                        kiutra,
+                                                        step_mode,
+                                                        start,
+                                                        end,
+                                                        setpoints_measured,
+                                                        step_interval,
+                                                        interval_precision
+                )
+                time.sleep(0.01)
             if len(setpoints_measured) == len(setpoints):
                 break
             
@@ -441,24 +474,21 @@ def wait_for_next_setpoint(
     setpoints_measured: list,
     step_interval: float,
     interval_precision: float,
-) -> list:
+) -> Tuple(list, bool):
     
     if step_mode == "time":
         time.sleep(step_interval)
-        return setpoints_measured
+        return setpoints_measured, False
     
     elif step_mode == "temp":
-        do_measurement = False
-        while not do_measurement:
-            distance_to_setpoints = setpoints - kiutra.temperature()
-            do_measurement, setpoints_measured = is_setpoint_close(
-                distance_to_setpoints, 
-                setpoints, 
-                setpoints_measured,
-                interval_precision,
-            )
-            time.sleep(0.01)
-        return setpoints_measured
+        distance_to_setpoints = setpoints - kiutra.temperature()
+        do_measurement, setpoints_measured = is_setpoint_close(
+                                                distance_to_setpoints, 
+                                                setpoints, 
+                                                setpoints_measured,
+                                                interval_precision,
+        )
+        return do_measurement, setpoints_measured
 
 
 def is_setpoint_close(
@@ -506,12 +536,15 @@ def ADRSweepMeasurement(
             time.sleep(0.1)
 
     with meas.run() as datasaver:
-        print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
-        kiutra.adr(value=end, 
-                   adr_mode=adr_mode, 
-                   operation_mode=operation_mode, 
-                   auto_regenerate=auto_regenerate, 
-                   pre_regenerate=pre_regenerate)
+        kiutra.adr.sweep(
+                    start=start,
+                    value=end, 
+                    rate=rate,
+                    adr_mode=adr_mode, 
+                    operation_mode=operation_mode, 
+                    auto_regenerate=auto_regenerate, 
+                    pre_regenerate=pre_regenerate
+        )
         stable = False
         T_2 = start
 
