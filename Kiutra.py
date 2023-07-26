@@ -1,7 +1,18 @@
 import time
-from typing import Any
+from typing import Any, Optional
 import numpy as np
-import numpy.typing as npt
+import logging
+
+logger = logging.getLogger('Kiutra')
+logger.setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s \
+                              - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 from kiutra_api.api_client import KiutraClient
 from kiutra_api.controller_interfaces import (
@@ -115,7 +126,7 @@ class MagneticField(Parameter):
         if self.sample_magnet.is_blocked == True:
             raise ValueError(
                 f"End the following control sequences before \
-                    setting the temperature: {self.get_blocks()}"
+                    setting the magnet: {self.get_blocks()}"
             )
         self.sample_magnet.start((value, self.root_instrument.magnetic_field_rate()))
         while True:
@@ -131,16 +142,21 @@ class MagneticField(Parameter):
 
     def _print_info(self, setpoint: float) -> None:
         up_down = {True: "up", False: "down"}
-        true_to_stable = {True: "stable", False: "unstable"}
         print(
             f"B = {self.B:.3f}T (sweeping {up_down[self.B < setpoint]} \
-            to {setpoint}T, stable={self.stable})"
+            to {setpoint}T, stable={self.stable})", 
+            end='\r'
         )
 
-    def sweep(self, start: float, end: float) -> None:
+    def sweep(self, start: float, end: float, rate: Optional[float] = None) -> None:
+        self.set_rate_if_not_None(rate)
         rate = self.root_instrument.magnetic_field_rate()
         print(f"Starts sweep from {start} T to {end} T ramping {rate} T/min")
-        self.sample_magnet.start((end, self.root_instrument.magnetic_field_rate()))
+        self.sample_magnet.start((end, rate))
+
+    def set_rate_if_not_None(self, rate: Optional[float]):
+        if rate is not None:
+            self.root_instrument.magnetic_field_rate(rate)
 
     def get_blocks(self) -> str:
         return self.sample_magnet.is_blocked_by
@@ -203,12 +219,16 @@ class TemperatureControl(Parameter):
     def _is_done(self) -> bool:
         return self.ramping_info["ramp_done"] and self.ramping_info["ready_to_ramp"]
 
-    def sweep(self, start: float, end: float, rate: float = None) -> None:
-        if rate is None:
-            rate = self.root_instrument.temperature_rate()
+    def sweep(self, start: float, end: float, rate: Optional[float] = None) -> None:
+        self.set_rate_if_not_None(rate)
         if self.check_range(end) == True:
+            rate = self.root_instrument.temperature_rate()
             print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
             self.temperature_control.start((end, rate))
+
+    def set_rate_if_not_None(self, rate: Optional[float]):
+        if rate is not None:
+            self.root_instrument.temperature_rate(rate)
 
     def get_mode(self) -> str:
         return self.root_instrument.operation_mode()
@@ -235,7 +255,7 @@ class ADR_Temperature(Parameter):
     def set_raw(
         self,
         value: float,
-        rate: float = None,
+        rate: Optional[float] = None,
         adr_mode: int = None,
         operation_mode: str = None,
         auto_regenerate: bool = False,
@@ -249,10 +269,11 @@ class ADR_Temperature(Parameter):
         
         if operation_mode == None:
             operation_mode = self.get_mode()
-        if rate == None:
-            rate = self.root_instrument.temperature_rate()
+
+        self.set_rate_if_not_None(rate)
 
         if self.check_range(value, operation_mode) == True:
+            rate = self.root_instrument.temperature_rate()
             self.adr_control.start_adr(
                 setpoint=value,
                 ramp=rate,
@@ -272,7 +293,7 @@ class ADR_Temperature(Parameter):
         self,
         start: float,
         value: float,
-        rate: float = None,
+        rate: Optional[float] = None,
         adr_mode: int = None,
         operation_mode: str = None,
         auto_regenerate: bool = False,
@@ -287,7 +308,10 @@ class ADR_Temperature(Parameter):
         if operation_mode == None:
             operation_mode = self.get_mode()
 
+        self.set_rate_if_not_None(rate)
+
         if self.check_range(value, operation_mode) == True:
+            rate = self.root_instrument.temperature_rate()
             print(f"Starts sweep from {start} K to {value} K ramping {rate} K/min")
             self.adr_control.start_adr(
                 setpoint=value,
@@ -312,6 +336,10 @@ class ADR_Temperature(Parameter):
             self.mode = self.get_mode()
         else:
             self.mode = mode
+
+    def set_rate_if_not_None(self, rate: Optional[float]):
+        if rate is not None:
+            self.root_instrument.temperature_rate(rate)
 
     def get_mode(self) -> str:
         return self.adr_control.operation_mode
@@ -385,7 +413,7 @@ def BSweepMeasurement(
         time.sleep(0.1)
 
     with meas.run() as datasaver:
-        kiutra.magnetic_field.sweep(start, end)
+        kiutra.magnetic_field.sweep(start, end, rate)
         stable = False
         B_2 = start
         while all((not stable, up_down_condition(B_2, start, end))):
