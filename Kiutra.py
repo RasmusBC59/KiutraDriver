@@ -1,20 +1,13 @@
+import logging
 import time
 from typing import Any, Optional
+
 import numpy as np
-import logging
+from qcodes import validators as vals
+from qcodes.dataset import Measurement
+from qcodes.instrument import Instrument
+from qcodes.parameters import Parameter, ParameterBase
 
-logger = logging.getLogger("Kiutra")
-logger.setLevel(logging.DEBUG)
-
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-
-formatter = logging.Formatter(
-    "%(asctime)s - %(name)s \
-                              - %(levelname)s - %(message)s"
-)
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
 
 from kiutra_api.api_client import KiutraClient
 from kiutra_api.controller_interfaces import (
@@ -23,11 +16,6 @@ from kiutra_api.controller_interfaces import (
     MagnetControl,
     SampleControl,
 )
-
-from qcodes import validators as vals
-from qcodes.dataset import Measurement
-from qcodes.instrument import Instrument
-from qcodes.parameters import Parameter, ParameterBase
 
 
 class KiutraIns(Instrument):
@@ -124,7 +112,7 @@ class MagneticField(Parameter):
         return self.sample_magnet.field
 
     def set_raw(self, value: float) -> None:
-        if self.sample_magnet.is_blocked == True:
+        if self.sample_magnet.is_blocked is True:
             raise ValueError(
                 f"End the following control sequences before \
                     setting the magnet: {self.get_blocks()}"
@@ -181,7 +169,7 @@ class TemperatureControl(Parameter):
         return self.temperature_control.kelvin
 
     def set_raw(self, value: float) -> None:
-        if self.temperature_control.is_blocked == True:
+        if self.temperature_control.is_blocked is True:
             raise ValueError(
                 f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}"
