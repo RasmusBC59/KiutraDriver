@@ -170,7 +170,7 @@ class TemperatureControl(Parameter):
                 f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}"
             )
-        if self.check_range(value) == True:
+        if self.check_range(value) is True:
             self.temperature_control.start(
                 (value, self.root_instrument.temperature_rate())
             )
