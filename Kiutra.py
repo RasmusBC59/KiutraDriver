@@ -3,14 +3,16 @@ from typing import Any, Optional
 import numpy as np
 import logging
 
-logger = logging.getLogger('Kiutra')
+logger = logging.getLogger("Kiutra")
 logger.setLevel(logging.DEBUG)
 
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
 
-formatter = logging.Formatter('%(asctime)s - %(name)s \
-                              - %(levelname)s - %(message)s')
+formatter = logging.Formatter(
+    "%(asctime)s - %(name)s \
+                              - %(levelname)s - %(message)s"
+)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
@@ -29,7 +31,6 @@ from qcodes.parameters import Parameter, ParameterBase
 
 
 class KiutraIns(Instrument):
-
     def __init__(self, name: str, address: str, **kwargs: Any):
         super().__init__(name, **kwargs)
         self.host = address
@@ -103,13 +104,13 @@ class KiutraIns(Instrument):
     ) -> None:
         true_to_active = {True: "active", False: "inactive"}
         print(
-            "Sample Magnet: {:>10}".format('') \
+            "Sample Magnet: {:>10}".format("")
             + f"{true_to_active[self.magnetic_field._is_active()]}\n"
-            "Temperature control: {:>4}".format('') \
+            "Temperature control: {:>4}".format("")
             + f"{true_to_active[self.temperature._is_active()]}\n"
-            "ADR control: {:>12}".format('')\
+            "ADR control: {:>12}".format("")
             + f"{true_to_active[self.adr._is_active()]}\n"
-            "Loader: {:>17}".format('') \
+            "Loader: {:>17}".format("")
             + f"{true_to_active[self.loader._is_active()]}\n"
         )
 
@@ -144,8 +145,8 @@ class MagneticField(Parameter):
         up_down = {True: "up", False: "down"}
         print(
             f"B = {self.B:.3f}T (sweeping {up_down[self.B < setpoint]} \
-            to {setpoint}T, stable={self.stable})", 
-            end='\r'
+            to {setpoint}T, stable={self.stable})",
+            end="\r",
         )
 
     def sweep(self, start: float, end: float, rate: Optional[float] = None) -> None:
@@ -266,7 +267,7 @@ class ADR_Temperature(Parameter):
                 f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}"
             )
-        
+
         if operation_mode == None:
             operation_mode = self.get_mode()
 
@@ -304,7 +305,7 @@ class ADR_Temperature(Parameter):
                 f"End the following control sequences before \
                     setting the temperature: {self.get_blocks()}"
             )
-        
+
         if operation_mode == None:
             operation_mode = self.get_mode()
 
@@ -327,7 +328,8 @@ class ADR_Temperature(Parameter):
         if value < 0.3 and self.mode == "cadr":
             raise ValueError(
                 f"Temperatures below 0.3K are not possible in continuous ADR mode: \
-                    use KiutraIns.adr({value}, " + 'operation_mode="adr")'
+                    use KiutraIns.adr({value}, "
+                + 'operation_mode="adr")'
             )
         return True
 
@@ -436,8 +438,8 @@ def TSweepMeasurement(
     rate: float,
     step_interval: float,
     *param_meas,
-    step_mode: str='time',
-    write_period: float=5.0,
+    step_mode: str = "time",
+    write_period: float = 5.0,
 ):
     meas = Measurement()
     meas.write_period = write_period
@@ -462,27 +464,26 @@ def TSweepMeasurement(
         while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.temperature.temperature_control.stable
 
-            if step_mode == 'temp':
+            if step_mode == "temp":
                 try:
                     next_setpoint = setpoints.pop()
                     if next_setpoint == start:
                         continue
                     else:
-                        while all((not stable, up_down_condition(T_2, start, next_setpoint))):
+                        while all(
+                            (not stable, up_down_condition(T_2, start, next_setpoint))
+                        ):
                             T_2 = kiutra.temperature()
                             time.sleep(0.001)
                 except IndexError:
                     break
             else:
                 time.sleep(step_interval)
-            
+
             T_1 = kiutra.temperature()
             params_get = [(param, param.get()) for param in params]
             T_2 = kiutra.temperature()
-            datasaver.add_result(
-                (kiutra.temperature, (T_1 + T_2) / 2.0), 
-                *params_get
-            )
+            datasaver.add_result((kiutra.temperature, (T_1 + T_2) / 2.0), *params_get)
 
         return datasaver.dataset
 
@@ -517,24 +518,24 @@ def ADRSweepMeasurement(
 
     with meas.run() as datasaver:
         kiutra.adr.sweep(
-                    start=start,
-                    value=end, 
-                    rate=rate,
-                    adr_mode=adr_mode, 
-                    operation_mode=operation_mode, 
-                    auto_regenerate=auto_regenerate, 
-                    pre_regenerate=pre_regenerate
+            start=start,
+            value=end,
+            rate=rate,
+            adr_mode=adr_mode,
+            operation_mode=operation_mode,
+            auto_regenerate=auto_regenerate,
+            pre_regenerate=pre_regenerate,
         )
         stable = False
         T_2 = start
 
         while all((not stable, up_down_condition(T_2, start, end))):
             stable = kiutra.adr.adr_control.stable
-            T_1 = kiutra.adr() 
+            T_1 = kiutra.adr()
             params_get = [(param, param.get()) for param in params]
             T_2 = kiutra.adr()
             datasaver.add_result(
-                (kiutra.adr, (T_1 + T_2) / 2.0), 
+                (kiutra.adr, (T_1 + T_2) / 2.0),
                 *params_get,
             )
             time.sleep(step_interval)
