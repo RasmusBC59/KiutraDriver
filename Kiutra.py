@@ -1,4 +1,3 @@
-import logging
 import time
 from typing import Any, Optional
 
@@ -107,6 +106,7 @@ class MagneticField(Parameter):
     def __init__(self, name, **kwargs):
         super().__init__(name, **kwargs)
         self.sample_magnet = MagnetControl("sample_magnet", self.root_instrument.host)
+        assert isinstance(self.root_instrument, KiutraIns)
 
     def get_raw(self) -> float:
         return self.sample_magnet.field
@@ -210,7 +210,7 @@ class TemperatureControl(Parameter):
 
     def sweep(self, start: float, end: float, rate: Optional[float] = None) -> None:
         self.set_rate_if_not_None(rate)
-        if self.check_range(end) == True:
+        if self.check_range(end) is True:
             rate = self.root_instrument.temperature_rate()
             print(f"Starts sweep from {start} K to {end} K ramping {rate} K/min")
             self.temperature_control.start((end, rate))
@@ -245,8 +245,8 @@ class ADR_Temperature(Parameter):
         self,
         value: float,
         rate: Optional[float] = None,
-        adr_mode: int = None,
-        operation_mode: str = None,
+        adr_mode: Optional[int] = None,
+        operation_mode: Optional[str] = None,
         auto_regenerate: bool = False,
         pre_regenerate: bool = False,
     ) -> None:
@@ -256,12 +256,12 @@ class ADR_Temperature(Parameter):
                     setting the temperature: {self.get_blocks()}"
             )
 
-        if operation_mode == None:
+        if operation_mode is None:
             operation_mode = self.get_mode()
 
         self.set_rate_if_not_None(rate)
 
-        if self.check_range(value, operation_mode) == True:
+        if self.check_range(value, operation_mode) is True:
             rate = self.root_instrument.temperature_rate()
             self.adr_control.start_adr(
                 setpoint=value,
@@ -283,8 +283,8 @@ class ADR_Temperature(Parameter):
         start: float,
         value: float,
         rate: Optional[float] = None,
-        adr_mode: int = None,
-        operation_mode: str = None,
+        adr_mode: Optional[int] = None,
+        operation_mode: Optional[str] = None,
         auto_regenerate: bool = False,
         pre_regenerate: bool = False,
     ) -> None:
@@ -294,12 +294,12 @@ class ADR_Temperature(Parameter):
                     setting the temperature: {self.get_blocks()}"
             )
 
-        if operation_mode == None:
+        if operation_mode is None:
             operation_mode = self.get_mode()
 
         self.set_rate_if_not_None(rate)
 
-        if self.check_range(value, operation_mode) == True:
+        if self.check_range(value, operation_mode) is True:
             rate = self.root_instrument.temperature_rate()
             print(f"Starts sweep from {start} K to {value} K ramping {rate} K/min")
             self.adr_control.start_adr(
@@ -311,7 +311,7 @@ class ADR_Temperature(Parameter):
                 pre_regenerate=pre_regenerate,
             )
 
-    def check_range(self, value: float, mode: str = None) -> bool:
+    def check_range(self, value: float, mode: Optional[str] = None) -> bool:
         self.assign_mode(mode)
         if value < 0.3 and self.mode == "cadr":
             raise ValueError(
@@ -321,11 +321,8 @@ class ADR_Temperature(Parameter):
             )
         return True
 
-    def assign_mode(self, mode: str) -> None:
-        if mode is None:
-            self.mode = self.get_mode()
-        else:
-            self.mode = mode
+    def assign_mode(self, mode: Optional[str]) -> None:
+        self.mode = self.get_mode() if mode is None else mode
 
     def set_rate_if_not_None(self, rate: Optional[float]):
         if rate is not None:
@@ -484,8 +481,8 @@ def ADRSweepMeasurement(
     step_interval: float,
     *param_meas,
     write_period: float = 5.0,
-    adr_mode: int = None,
-    operation_mode: str = None,
+    adr_mode: Optional[int] = None,
+    operation_mode: Optional[str] = None,
     auto_regenerate: bool = False,
     pre_regenerate: bool = False,
 ):
